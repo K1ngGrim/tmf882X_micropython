@@ -1,5 +1,6 @@
 import time
-from com.i2c_com import I2c_com
+
+from tmf8821.com.i2c_com import I2C_com, I2C_Settings
 
 
 class Tmf8821Device:
@@ -17,6 +18,24 @@ class Tmf8821Device:
         """Something went wrong when opening or reading from UART."""
         OTHER_ERROR = -5
         """Something went wrong, but there's no specific error code."""
+
+        @staticmethod
+        def getStatusCode(code: int):
+            status = ""
+
+            if code == 0:
+                status = "OK"
+            elif code == -1:
+                status = "DEV_ERROR"
+            elif code == -2:
+                status = "APP_ERROR"
+            elif code == -3:
+                status = "TIMEOUT_ERROR"
+            elif code == -4:
+                status = "UART_ERROR"
+            else:
+                status = "OTHER_ERROR"
+            return status
 
     I2C_SLAVE_ADDR = 0x41
     """The default I2C address. Fixed for now, can be changed later. """
@@ -40,27 +59,27 @@ class Tmf8821Device:
     TMF882X_INT_STATUS = 0xe1
     TMF882X_INT_ENAB = 0xe2
 
-    def __init__(self, com: I2c_com):
+    def __init__(self, com: I2C_com):
         self.com = com
         self.register_buffer = [0xff] * 256
         self.power_up_mask = 0x41
 
-    def open(self, i2c_speed: int = 1000000):
+    def open(self, i2c_settings: I2C_Settings = I2C_Settings()):
         """
         Open the communication.
         Args:
-            i2c_speed (int, optional): Open I2C communication. Defaults to 1000000.
+            i2c_settings (Object, optional): Define Settings for I2C communication
         Returns:
-            Status: The status code (OK = 0, error != 0)..
+            Status: The status code (OK = 0, error != 0).
         """
-        return self.com.i2cOpen(i2c_speed=i2c_speed)
+        return self.com.i2cOpen(i2c_settings)
 
     def enable(self, send_wake_up_sequence: bool = True) -> int:
         """Enable the TMF882X.
         Args:
             send_wake_up_sequence (bool, optional): Send the I2C power-on sequence from a cold start. Defaults to True.
         Returns:
-            Status: The status code (OK = 0, error != 0)..
+            Status: The status code (OK = 0, error != 0).
         """
 
         if send_wake_up_sequence:
@@ -95,6 +114,19 @@ class Tmf8821Device:
     def _log(self, message):
         """Log information"""
         print(message)
+
+    def _getSlaveAddress(self):
+
+        return self.I2C_SLAVE_ADDR
+
+    def _setSlaveAddress(self, addr):
+        """
+        Changes the slave address of this TMF8821_Device instance
+        Args:
+            addr: new Slave Address for I2C Bus
+                """
+        self.I2C_SLAVE_ADDR = addr
+        return self.I2C_SLAVE_ADDR
 
     def readIntStatus(self) -> int:
         """ read the interrupt status register of TMF8x0x """

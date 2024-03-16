@@ -1,7 +1,8 @@
 import time
 
-from com.i2c_com import I2c_com
+from tmf8821.com.i2c_com import *
 from tmf8821.tmf8821_app import Tmf8821App
+from tmf8821.tmf8821_utility import Tmf8821Utility
 
 
 def measure(tof: Tmf8821App, number_of_frames: int, log: bool = False):
@@ -20,11 +21,8 @@ def measure(tof: Tmf8821App, number_of_frames: int, log: bool = False):
         if tof.readAndClearInt(tof.TMF8X2X_APP_I2C_RESULT_IRQ_MASK):
             read_frames = read_frames + 1
             frame = tof.readResult()
-
-            data_list, _ = tof.getResultFields(frame)
-            row = ["#obj"] + data_list
-            if log:
-                print("Frame[{}]:".format(read_frames), row)  # regular result frame header
+            frame.print()
+            time.sleep(1)
     tof.stopMeasure()
 
 
@@ -35,17 +33,31 @@ def execute(tof: Tmf8821App):
     time.sleep(0.5)  # give the application some time to fully start up.
     print("Application {} started".format(tof.getAppId()))
 
-    tof.configure(period_in_ms=33, kilo_iterations=537,
-                  spad_map_id=Tmf8821App.TMF8X2X_COM_SPAD_MAP_ID__spad_map_id__map_no_7)
-    measure(tof, number_of_frames=30, log=True)
+    #tof.configure(period_in_ms=33, kilo_iterations=537,
+    #              spad_map_id=Tmf8821App.TMF8X2X_COM_SPAD_MAP_ID__spad_map_id__map_no_7)
+    measure(tof, number_of_frames=1, log=True)
 
 
-if __name__ == "__main__":
+"""if __name__ == "__main__":
     com = I2c_com()
 
-    tof = Tmf8821App(ic_com=com)
+    tof = Tmf8821Utility(ic_com=com)
 
-    if Tmf8821App.Status.OK != tof.open(i2c_speed=400000):  # open FTDI communication channels
+    if Tmf8821App.Status.OK != tof.open():  # open FTDI communication channels
         raise RuntimeError("Error open FTDI device")
 
-    execute(tof)
+    execute(tof)"""
+
+if __name__ == "__main__":
+    com = I2C_com()
+
+    tof = Tmf8821Utility(ic_com=com)
+
+    if Tmf8821App.Status.OK != tof.open():  # open FTDI communication channels
+        raise RuntimeError("Error open FTDI device")
+
+    tof.init_bootloader_check()
+    frame_list = tof.measure_frame()
+
+    [frame.print() for frame in frame_list]
+

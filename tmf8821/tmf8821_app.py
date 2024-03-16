@@ -1,6 +1,7 @@
 import time
-import uctypes
-from com.i2c_com import I2c_com
+import struct
+
+from tmf8821.com.i2c_com import I2C_com
 from tmf8821.tmf8821_device import Tmf8821Device
 
 # constants for all classes
@@ -9,110 +10,155 @@ TMF882X_MAX_NUMBER_OF_RESULTS = TMF882X_APP_MAX_ZONES * 2  # 2 objects per zone
 TMF882X_BINS = 128  # how many bytes are in a histogram sub-packet
 
 
-class Tmf882xHeader:
-    """The tmf882x generic header """
+class LittleEndianStructure:
+    _fields_ = []
+
+    last_unpacked = {}
+
+    """Do not update this directly"""
+    packet_string_struct = "<"
 
     def __init__(self):
-        self.cid_rid: uctypes.UINT8
-        self.tid: uctypes.UINT8
-        self.payload: uctypes.UINT16
-        super().__init__()
+        for entry in self._fields_:
+            key, value = entry
 
-    _pack_ = 1
+            if type(value) == type(type):
+                instance = value()
+                self._fields_[self._fields_.index(entry)] = (key, instance)
+                self.packet_string_struct = "object"
+            elif self.packet_string_struct != "object":
+                self.packet_string_struct += value
+            else:
+                raise ValueError("Structure cannot contain mixed values")
+
+    def get_size(self):
+        return struct.calcsize(self.packet_string_struct)
+
+    def print(self):
+        print(self.last_unpacked)
+
+    def unpack(self, pdata):
+        result = {}
+        if self.packet_string_struct == "object":
+            for entry in self._fields_:
+                key, value = entry
+                cut = pdata[:value.get_size()]
+                pdata = pdata[value.get_size():]
+                result[key] = value.unpack(pdata=cut)
+        else:
+            size = self.get_size()
+            unpacked = struct.unpack(self.packet_string_struct, pdata[:size])
+
+            for entry in self._fields_:
+                key, value = entry
+                result[key] = unpacked[self._fields_.index(entry)]
+
+        self.last_unpacked = result
+        return result
+
+
+class TMF8821ResultPayload(LittleEndianStructure):
     _fields_ = [
-        ("cid_rid", uctypes.UINT8),
-        ("tid", uctypes.UINT8),
-        ("payload", uctypes.UINT16),
+        ("resultNumber", 'B'),
+        ("temperature", 'B',),
+        ("numberValidResults", 'B'),
+        ("reserved0", 'B'),
+        ("ambientLight", 'I'),
+        ("photonCount", 'I'),
+        ("referencePhotonCount", 'I'),
+        ("systemTicks", 'I')
     ]
 
+    resultNumber = 0
+    temperature = 0
+    numberValidResults = 0
+    reserved0 = 0
+    ambientLight = 0
+    photonCount = 0
+    referencePhotonCount = 0
+    systemTicks = 0
 
-class Tmf882xResultFrameHeader():
-    """The tmf882x result frame header """
+    def unpack(self, pdata):
+        unpacked = super().unpack(pdata)
+        self.resultNumber = unpacked["resultNumber"]
+        self.temperature = unpacked["temperature"]
+        self.numberValidResults = unpacked["numberValidResults"]
+        self.reserved0 = unpacked["reserved0"]
+        self.ambientLight = unpacked["ambientLight"]
+        self.photonCount = unpacked["photonCount"]
+        self.referencePhotonCount = unpacked["referencePhotonCount"]
+        self.systemTicks = unpacked["systemTicks"]
+
+
+class TMF8821ResultHeader(LittleEndianStructure):
+    _fields_ = [
+        ("cid_rid", 'B'),
+        ("tid", 'B'),
+        ("payload", 'H'),
+    ]
+
+    cid_rid = 0
+    tid = 0
+    payload = 0
 
     def __init__(self):
-        self.resultNumber: uctypes.UINT8
-        self.temperature: uctypes.UINT8
-        self.numberValidResults: uctypes.UINT8
-        self.reserved0: uctypes.UINT8
-        self.ambientLight: uctypes.UINT32
-        self.photonCount: uctypes.UINT32
-        self.referencePhotonCount: uctypes.UINT32
-        self.systemTicks: uctypes.UINT32
         super().__init__()
 
-    _pack_ = 1
+    def unpack(self, pdata):
+        unpacked = super().unpack(pdata)
+        self.cid_rid = unpacked["cid_rid"]
+        self.tid = unpacked["tid"]
+        self.payload = unpacked["payload"]
+
+
+class TMF8821MeasureResults(LittleEndianStructure):
     _fields_ = [
-        ("resultNumber", uctypes.UINT8),
-        ("temperature", uctypes.UINT8),
-        ("numberValidResults", uctypes.UINT8),
-        ("reserved0", uctypes.UINT8),
-        ("ambientLight", uctypes.UINT32),
-        ("photonCount", uctypes.UINT32),
-        ("referencePhotonCount", uctypes.UINT32),
-        ("systemTicks", uctypes.UINT32),
+        ("confidence", 'B'),
+        ("distanceInMm", 'H')
     ]
 
-
-class Tmf882xResultFramePayload():
-    """The tmf882x result frame payload """
+    confidence = 0
+    distanceInMm = 0
 
     def __init__(self):
-        self.confidence: uctypes.UINT8
-        self.distanceInMm: uctypes.UINT16
         super().__init__()
 
-    _pack_ = 1
-    _fields_ = [
-        ("confidence", uctypes.UINT8),
-        ("distanceInMm", uctypes.UINT16),
-    ]
+    def unpack(self, pdata):
+        unpacked = super().unpack(pdata)
+        self.confidence = unpacked["confidence"]
+        self.distanceInMm = unpacked["distanceInMm"]
 
 
-class Tmf882xResultFrame():
-    def __init__(self):
-        self.header: Tmf882xHeader
-        """ The generic header for all communication """
-        self.resultHeader: Tmf882xResultFrameHeader
-        """The result header."""
-        self.object1: [Tmf882xResultFramePayload]
-        """The list of first objects per zone."""
-        self.object2: [Tmf882xResultFramePayload]
-        """The list of 2nd objects per zone."""
-        super().__init__()
+class TMF8821ResultFrame(LittleEndianStructure):
+    _fields_ = []
 
-    _pack_ = 1
-    _fields_ = [
-        ("header", Tmf882xHeader),
-        ("resultHeader", Tmf882xResultFrameHeader),
-        ("object1", Tmf882xResultFramePayload * TMF882X_APP_MAX_ZONES),
-        ("object2", Tmf882xResultFramePayload * TMF882X_APP_MAX_ZONES),
-    ]
-
-    def decode(self, raw_data: bytearray):
-        """ Decode a raw data frame into this frame structure instance. """
-        assert uctypes.sizeof(self) <= len(raw_data), "The data is too small"
-        uctypes.memmove(uctypes.PTR(self), bytes(raw_data), uctypes.sizeof(self))
-
-    def sizeBytes(self) -> int:
-        """Get the size of the frame in bytes. """
-        return uctypes.sizeof(self)
-
-
-class Tmf882xSubHeader():
-    """The tmf882x generic header """
+    header = TMF8821ResultHeader()
+    payload = TMF8821ResultPayload()
+    results = []
 
     def __init__(self):
-        self.number: uctypes.UINT8
-        self.payload: uctypes.UINT8
-        self.config_id: uctypes.UINT8
         super().__init__()
 
-    _pack_ = 1
-    _fields_ = [
-        ("number", uctypes.UINT8),
-        ("payload", uctypes.UINT8),
-        ("config_id", uctypes.UINT8),
-    ]
+    def unpack(self, pdata):
+        self.header.unpack(pdata[:self.header.get_size()])
+        pdata = pdata[self.header.get_size():]
+        self.payload.unpack(pdata[:self.payload.get_size()])
+        pdata = pdata[self.payload.get_size():]
+
+        for i in range(0, self.payload.numberValidResults):
+            entry = TMF8821MeasureResults()
+            entry.unpack(pdata[:entry.get_size()])
+            pdata = pdata[entry.get_size():]
+            self.results.append(entry)
+
+    def print(self):
+        self.header.print()
+        self.payload.print()
+        self.print_results()
+
+    def print_results(self):
+        for result in self.results:
+            result.print()
 
 
 class BinaryImage:
@@ -424,20 +470,36 @@ class Tmf8821App(Tmf8821Device):
 
     TMF8X2X_COM_RESULT_FRAME_SIZE = 128 + 4  # Result + header
     TMF8X2X_COM_HISTOGRAM_FRAME_SIZE = 128 + 4 + 3  # data + header + sub-header
-    TMF8X2X_MAX_CLK_CORRECTION_PAIRS = 4  # how far appart the clock correction values are (== period * this_value)
+    TMF8X2X_MAX_CLK_CORRECTION_PAIRS = 4  # how far apart the clock correction values are (== period * this_value)
     TMF8X2X_CLK_CORRECTION_FACTOR = 5  # tmf882x clock ticks are in [0.2] microseconds, host ticks are in [1] microseconds
-    TMF882X_CHANNELS = 10  # the tmf882x has native (not time-muliplexed 10 channels)
-    TMF882X_CFG_IDX_FIELD = 2  # index of the configuraiton index field in the sub-header
+    TMF882X_CHANNELS = 10  # the tmf882x has native (not time-multiplexed 10 channels)
+    TMF882X_CFG_IDX_FIELD = 2  # index of the configuration index field in the sub-header
 
-    def __init__(self, ic_com: I2c_com):
+    def __init__(self, ic_com: I2C_com):
         super().__init__(ic_com)
         self.host_ticks = [0 for _ in range(Tmf8821App.TMF8X2X_MAX_CLK_CORRECTION_PAIRS)]
         self.tmf8821_ticks = [0 for _ in range(Tmf8821App.TMF8X2X_MAX_CLK_CORRECTION_PAIRS)]
+        self.ticks_idx = 0
         self.mode = None
+
+    def _addClkCorrectionPair(self, host_tick: int, tmf8821_tick: int):
+        """
+        Add a host + device clock pair for clock correction
+        Args:
+            host_tick(int): The host tick at I2C read-out.
+            tmf882x_tick(int): The device tick as part of the results structure.
+        """
+        if tmf8821_tick != 0:  # tmf882x ticks are only valid if lsb is 1, see datasheet for more details
+            self.host_ticks[self.ticks_idx] = host_tick
+            self.tmf8821_ticks[self.ticks_idx] = tmf8821_tick
+            self.ticks_idx = self.ticks_idx + 1
+            if self.ticks_idx >= Tmf8821App.TMF8X2X_MAX_CLK_CORRECTION_PAIRS:
+                self.ticks_idx = 0  # wrap around
 
     @staticmethod
     def _computeBootloaderChecksum(data: [int]) -> int:
-        """Compute the bootloader checksum over an array.
+        """
+        Compute the bootloader checksum over an array.
         Args:
             data (List[int]): The array to compute the checksum over
         Returns:
@@ -447,7 +509,8 @@ class Tmf8821App(Tmf8821Device):
 
     @staticmethod
     def _appendChecksumToFrame(frame: [int]) -> None:
-        """Append a checksum it to the I2C frame.
+        """
+        Append a checksum it to the I2C frame.
         Args:
             frame (List[int]): The I2C command frame.
         """
@@ -456,8 +519,8 @@ class Tmf8821App(Tmf8821Device):
         frame.append(checksum)
 
     def isAppRunning(self):
-        """Check if the application is running.
-
+        """
+        Check if the application is running.
         Returns:
             bool: True if the application is running, False if not
         """
@@ -465,8 +528,8 @@ class Tmf8821App(Tmf8821Device):
         return val and val[0] == self.TMF8X2X_COM_APP_ID__application
 
     def getAppId(self):
-        """Get the application version.
-
+        """
+        Get the application version.
         Returns:
             [int, int, int, int]: app_id, minor, patch, build
         """
@@ -474,8 +537,8 @@ class Tmf8821App(Tmf8821Device):
         return list(map(int, val))
 
     def getAppMode(self):
-        """The application mode (TMF8820/TMF8828)
-
+        """
+        The application mode (TMF8820/TMF8828)
         Returns:
             int: 8 if application is in TMF8828 mode, 0 otherwise
         """
@@ -508,7 +571,8 @@ class Tmf8821App(Tmf8821Device):
                 return self.Status.TIMEOUT_ERROR
 
     def _sendCommand(self, cmd: int, timeout: float = 20e-3) -> Tmf8821Device.Status:
-        """Send a command to the TMF882X application, and check if it's accepted.
+        """
+        Send a command to the TMF882X application, and check if it's accepted.
         Args:
             cmd (int): The command that the device shall execute.
             timeout (float, optional): _description_. Defaults to 20e-3.
@@ -522,7 +586,8 @@ class Tmf8821App(Tmf8821Device):
         return self._checkRegister(regAddr=self.TMF8X2X_COM_CMD_STAT, expected=expected, timeout=timeout)
 
     def loadConfig(self, config_page_cmd: int, timeout: float = 20e-3) -> Tmf8821Device.Status:
-        """Load the I2C configuration from the device into the register_buffer.
+        """
+        Load the I2C configuration from the device into the register_buffer.
         Args:
             config_page_cmd (int: The config page command to be loaded (e.g. TMF8X2X_COM_CMD_STAT__cmd_load_config_page_common)
             timeout (float, optional): The maximum time we allow the application to load the configuration. Defaults to 20e-3 == 20ms.
@@ -544,7 +609,8 @@ class Tmf8821App(Tmf8821Device):
         return self.Status.OK
 
     def writeConfig(self, timeout: float = 40e-3) -> Tmf8821Device.Status:
-        """Write the I2C configuration from the register_buffer onto the device.
+        """
+        Write the I2C configuration from the register_buffer onto the device.
         Args:
             timeout (float, optional): The maximum time we allow the application to write the configuration. Defaults to 20e-3 == 20ms.
         Returns:
@@ -565,7 +631,7 @@ class Tmf8821App(Tmf8821Device):
             kilo_iterations (int, optional): Kilo-Iterations per measurement. Defaults to 537.
             spad_map_id (int, optional): Select one of the predefined maps (1..13). Defaults to 1.
             confidence_threshold (int, optional): Only if confidence for a target is equal or higher to this,
-            it will be reproted as an object. Defaults to 6.
+            it will be reported as an object. Defaults to 6.
             histograms(int,optional): whether histograms dumping is enabled or disabled. Defaults to no histograms.
         Returns:
             Status: The status code (OK = 0, error != 0).
@@ -670,7 +736,8 @@ class Tmf8821App(Tmf8821Device):
         return self.Status.OK
 
     def startRamApp(self, timeout: float = 20e-3) -> Tmf8821Device.Status:
-        """Start the ROM application from the bootloader.
+        """
+        Start the ROM application from the bootloader.
         Args:
             timeout (float, optional): The communication timeout. Defaults to 20e-3.
         Returns:
@@ -691,7 +758,7 @@ class Tmf8821App(Tmf8821Device):
 
     def downloadAndStartApp(self, timeout: float = 0.020) -> Tmf8821Device.Status:
         """
-        Convenience function: does download a hex file and start the downloaded applicaiton
+        Convenience function: does download a hex file and start the downloaded application
         Args:
             hex_file (str): The firmware/patch to load.
             timeout (float, optional): Wait time in communication before give up. Defaults to 0.020.
@@ -704,27 +771,28 @@ class Tmf8821App(Tmf8821Device):
         else:
             return status
 
-    def readResult(self) -> Tmf882xResultFrame:
+    def readResult(self) -> TMF8821ResultFrame:
         """
         Function reads a single result frame
         Returns:
             the read in result frame
         """
         fn_name = "readResult"
-        frame = Tmf882xResultFrame()
+        frame = TMF8821ResultFrame()
         raw = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, [self.TMF8X2X_COM_CONFIG_RESULT],
                                self.TMF8X2X_COM_RESULT_FRAME_SIZE)
         host_timestamp = int(time.time() * 1000 * 1000)  # need a close as possible timestamp from the host
-        if (len(raw) == 0 or raw[
-            0] != self.TMF8X2X_COM_CMD_STAT__cmd_measure):  # measure results must start with a 0x10 as cid_rid
+
+        # measure results must start with a 0x10 as cid_rid
+        if len(raw) == 0 or raw[0] != self.TMF8X2X_COM_CMD_STAT__cmd_measure:
             raw = bytearray(self.TMF8X2X_COM_RESULT_FRAME_SIZE)  # make a frame full of 0s
             self._setError("{} Not a frame".format(fn_name))
-        frame.decode(raw)
-        self._addClkCorrectionPair(host_timestamp,
-                                   frame.resultHeader.systemTicks)  # add the clk correction pair, does not do any correction yet,
+
+        frame.unpack(raw)
+        self._addClkCorrectionPair(host_timestamp, frame.payload.systemTicks)
         return frame
 
-    def startMeasure(self, timeout: float = 20e-3):
+    def startMeasure(self, timeout: float = 20e-3) -> Tmf8821Device.Status:
         """
         Functions clears and enables result interrupts, and starts a measurement.
         Args:
@@ -737,7 +805,7 @@ class Tmf8821App(Tmf8821Device):
         self.clearAndEnableInt(self.TMF8X2X_APP_I2C_RESULT_IRQ_MASK | self.TMF8X2X_APP_I2C_RAW_HISTOGRAM_IRQ_MASK)
         return self._sendCommand(self.TMF8X2X_COM_CMD_STAT__cmd_measure, timeout=timeout)
 
-    def stopMeasure(self, timeout: float = 20e-3):
+    def stopMeasure(self, timeout: float = 20e-3) -> Tmf8821Device.Status:
         """
         Function stops a measurement and disables all interrupts.
         Args:
@@ -748,54 +816,3 @@ class Tmf8821App(Tmf8821Device):
         status = self._sendCommand(self.TMF8X2X_COM_CMD_STAT__cmd_stop, timeout=timeout)
         self.enableInt(0)  # enable no interrupt == disable all
         return status
-
-    def getResultFields(self, frame: Tmf882xResultFrame):
-        """
-        Generate a data row for each result field later printing e.g. to CSV
-        Args:
-            frame (Tmf882xResultFrame): the result frame
-        Returns:
-            list,dict: The result frame data fields as list and as a dictionary.
-        """
-        objects = {}
-        row = []
-        for field_name, field_type in frame.header._fields_:
-            row.append(getattr(frame.header, field_name))
-        for field_name, field_type in frame.resultHeader._fields_:
-            row.append(getattr(frame.resultHeader, field_name))
-        idx = 0
-        objects["object1"] = []
-        objects["object2"] = []
-        for object1 in frame.object1:
-            for field_name, field_type in Tmf882xResultFramePayload._fields_:
-                row.append(getattr(object1, field_name))
-            if object1.confidence > 0:  # only if there is an target detected in this zone
-                obj = {
-                    "confidence": object1.confidence,
-                    "distance_mm": object1.distanceInMm,
-                    "channel": 1 + (idx % (Tmf8821App.TMF882X_CHANNELS - 1)),
-                    # there are 9 channels, starting from 1..9
-                    "ch_target_idx": 1,  # if there is just one object per channel this is always the first object
-                    "sub_capture": (idx // (Tmf8821App.TMF882X_CHANNELS - 1))
-                    # either sub-capture 0 (==objects[0..9]) or 1 (==objects[10..17])
-                }
-                objects["object1"].append(obj)
-            idx = idx + 1
-        idx = 0
-        for object2 in frame.object2:
-            for field_name, field_type in Tmf882xResultFramePayload._fields_:
-                row.append(getattr(object2, field_name))
-            if object2.confidence > 0:  # only if there is an target detected in this zone
-                obj = {
-                    "confidence": object2.confidence,
-                    "distance_mm": object2.distanceInMm,
-                    "channel": 1 + (idx % (Tmf8821App.TMF882X_CHANNELS - 1)),
-                    # there are 9 channels, starting from 1..9
-                    "ch_target_idx": 2,
-                    # 2nd object is always comming after the first, so if there is an object here it is 2nd
-                    "sub_capture": (idx // (Tmf8821App.TMF882X_CHANNELS - 1))
-                    # either sub-capture 0 (==objects[0..9]) or 1 (==objects[10..17])
-                }
-                objects["object2"].append(obj)
-            idx = idx + 1
-        return row, objects
