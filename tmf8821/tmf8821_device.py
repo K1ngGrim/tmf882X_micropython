@@ -1,6 +1,6 @@
 import time
 
-from tmf8821.com.i2c_com import I2C_com, I2C_Settings
+from .com.i2c_com import I2C_com, I2C_Settings
 
 
 class Tmf8821Device:
@@ -103,17 +103,19 @@ class Tmf8821Device:
         self.com.i2cTx(self.I2C_SLAVE_ADDR, [self.TMF882X_ENABLE, enable[0] | self.TMF882X_ENABLE__wakeup__MASK])
         return self.Status.OK
 
-    def _setError(self, message):
-        """An error occurred - add it to the error list, which the host can later read out.
+    @staticmethod
+    def error(message):
+        """An error occurred - print this shit.
 
         Args:
-            message (str): The errorr message
+            message (str): The error message
         """
-        print(message)
+        print(" - TMF882x - ", " - ERROR - ", message)
 
-    def _log(self, message):
+    @staticmethod
+    def log(message):
         """Log information"""
-        print(message)
+        print(" - TMF882x - ", " - LOG - ", message)
 
     def _getSlaveAddress(self):
 
@@ -133,7 +135,7 @@ class Tmf8821Device:
         intreg = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, [self.TMF882X_INT_STATUS], 1)
         if len(intreg):
             return intreg[0]
-        self._setError("Cannot read the INT_STATUS register")
+        self.error("Cannot read the INT_STATUS register")
         return 0
 
     def clearIntStatus(self, bitMaskToClear):
@@ -148,7 +150,7 @@ class Tmf8821Device:
         enabreg = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, [self.TMF882X_INT_ENAB], 1)
         if len(enabreg):
             return enabreg[0]
-        self._setError("Cannot read the INT_STATUS register")
+        self.error("Cannot read the INT_STATUS register")
         return 0
 
     def enableInt(self, bitMaskToEnable):

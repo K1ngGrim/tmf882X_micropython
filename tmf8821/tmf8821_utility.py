@@ -1,8 +1,6 @@
-from tmf8821.com.i2c_com import I2C_com, I2C_Settings
-from tmf8821.tmf8821_app import Tmf8821App
-import time
-
-from tmf8821.tmf8821_device import Tmf8821Device
+from .com.i2c_com import I2C_com, I2C_Settings
+from .tmf8821_device import Tmf8821Device
+from .tmf8821_app import Tmf8821App
 
 
 class Tmf8821Utility(Tmf8821App):
@@ -14,11 +12,12 @@ class Tmf8821Utility(Tmf8821App):
         return super().open(i2c_settings)
 
     def init_bootloader_check(self):
+        print("Started Bootloader check")
         self.enable()
 
         if not self.isAppRunning():
+            print("Image not found. Initiate Image Download")
             self.downloadAndStartApp()
-        time.sleep(4)
         print("Application {} started".format(self.getAppId()))
 
     def measure_frame(self, number_of_frames: int = 1):

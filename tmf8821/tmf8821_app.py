@@ -1,8 +1,7 @@
 import time
 import struct
-
-from tmf8821.com.i2c_com import I2C_com
-from tmf8821.tmf8821_device import Tmf8821Device
+from .com.i2c_com import I2C_com
+from .tmf8821_device import Tmf8821Device
 
 # constants for all classes
 TMF882X_APP_MAX_ZONES = 18  # time-multiplexe maximum of 18 zones produce a result
@@ -111,7 +110,7 @@ class TMF8821ResultHeader(LittleEndianStructure):
         self.payload = unpacked["payload"]
 
 
-class TMF8821MeasureResults(LittleEndianStructure):
+class TMF8821MeasureResult(LittleEndianStructure):
     _fields_ = [
         ("confidence", 'B'),
         ("distanceInMm", 'H')
@@ -127,6 +126,9 @@ class TMF8821MeasureResults(LittleEndianStructure):
         unpacked = super().unpack(pdata)
         self.confidence = unpacked["confidence"]
         self.distanceInMm = unpacked["distanceInMm"]
+        
+    def print(self):
+        print(self.distanceInMm, ", ", self.confidence)
 
 
 class TMF8821ResultFrame(LittleEndianStructure):
@@ -144,9 +146,9 @@ class TMF8821ResultFrame(LittleEndianStructure):
         pdata = pdata[self.header.get_size():]
         self.payload.unpack(pdata[:self.payload.get_size()])
         pdata = pdata[self.payload.get_size():]
-
+        self.results = []
         for i in range(0, self.payload.numberValidResults):
-            entry = TMF8821MeasureResults()
+            entry = TMF8821MeasureResult()
             entry.unpack(pdata[:entry.get_size()])
             pdata = pdata[entry.get_size():]
             self.results.append(entry)
@@ -155,6 +157,9 @@ class TMF8821ResultFrame(LittleEndianStructure):
         self.header.print()
         self.payload.print()
         self.print_results()
+
+    def __len__(self):
+        return len(self.results)
 
     def print_results(self):
         for result in self.results:
@@ -561,12 +566,12 @@ class Tmf8821App(Tmf8821Device):
         while True:
             rxed = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, [regAddr], 1)
             if not rxed:
-                self._setError("Read register {} failed.".format(regAddr))
+                self.error("Read register {} failed.".format(regAddr))
                 return self.Status.DEV_ERROR
             if rxed[0] == expected:
                 return self.Status.OK
             if time.time() > max_time:
-                self._setError(
+                self.error(
                     "Read register {} timed out, expected value {}, read value {}".format(regAddr, expected, rxed[0]))
                 return self.Status.TIMEOUT_ERROR
 
@@ -603,7 +608,7 @@ class Tmf8821App(Tmf8821Device):
         # Now read the data via I2C, and store it in th i2C buffer for easy access.
         val = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, [payload_addr], number_regs)
         if len(val) != number_regs:
-            self._setError("Reading the loaded config failed")
+            self.error("Reading the loaded config failed")
             return self.Status.DEV_ERROR
         self.register_buffer[payload_addr:payload_addr + number_regs] = val
         return self.Status.OK
@@ -672,7 +677,7 @@ class Tmf8821App(Tmf8821Device):
             # read back status + payload_len + payload + crc
             response = self.com.i2cTxRx(self.I2C_SLAVE_ADDR, read_frame, 3 + response_payload_len)
             if len(response) != 3 + response_payload_len:
-                self._setError("The application did not accept frame {}. Response is {}.".format(write_frame, response))
+                self.error("The application did not accept frame {}. Response is {}.".format(write_frame, response))
                 return self.Status.APP_ERROR, []
             if response[0] != cmd:
                 # response is ready, check if the frame is okay.
@@ -692,7 +697,7 @@ class Tmf8821App(Tmf8821Device):
                     error += "The checksum {} does not match to the frame content.".format(checksum)
 
                 if error:
-                    self._setError(
+                    self.error(
                         "{}\n Write Frame: {}, Read Frame: {}, Response {}.".format(error, write_frame, read_frame,
                                                                                     response))
                     return self.Status.APP_ERROR, bytearray()
@@ -700,7 +705,7 @@ class Tmf8821App(Tmf8821Device):
                     # every check passed, return payload data.
                     return self.Status.OK, payload
         # timed out
-        self._setError("The bootloader frame {} timed out after {}s.".format(write_frame, timeout))
+        self.error("The bootloader frame {} timed out after {}s.".format(write_frame, timeout))
         return self.Status.TIMEOUT_ERROR, []
 
     def _bootLoaderDownloadData(self, target_address: int, data: bytearray,
@@ -718,7 +723,7 @@ class Tmf8821App(Tmf8821Device):
         # First, send the target RAM address (little endian)
         status, _ = self._bootloaderSendCommand(self.TMF8X2X_COM_CMD_STAT__bl_cmd_addr_ram, target_address_bytes)
         if status != self.Status.OK:
-            self._setError("Setting RAM address {} failed.".format(target_address))
+            self.error("Setting RAM address {} failed.".format(target_address))
             return status
 
         # Set the maximum chunk size that can be transferred at once.
@@ -726,12 +731,12 @@ class Tmf8821App(Tmf8821Device):
         # Split the big bytearray into smaller chunks that can be transferred with single I2C bulk writes.
         for data_idx in range(0, len(data), max_chunk_len):
             payload_data = data[data_idx: data_idx + max_chunk_len]
-            self._log(
+            self.log(
                 "Loading address 0x{:x} chunk with {} bytes.".format(target_address + data_idx, len(payload_data)))
             # Write the payload of one chunk
             status, _ = self._bootloaderSendCommand(self.TMF8X2X_COM_CMD_STAT__bl_cmd_w_ram, list(payload_data))
             if status != self.Status.OK:
-                self._setError("Writing RAM chunk {} failed.".format(payload_data))
+                self.error("Writing RAM chunk {} failed.".format(payload_data))
                 return status
         return self.Status.OK
 
@@ -753,7 +758,7 @@ class Tmf8821App(Tmf8821Device):
                 self.mode = self.getAppMode()
                 return self.Status.OK
             if time.time() > max_time:
-                self._setError("The application did not start within {} seconds".format(timeout))
+                self.error("The application did not start within {} seconds".format(timeout))
                 return self.Status.TIMEOUT_ERROR
 
     def downloadAndStartApp(self, timeout: float = 0.020) -> Tmf8821Device.Status:
@@ -786,7 +791,7 @@ class Tmf8821App(Tmf8821Device):
         # measure results must start with a 0x10 as cid_rid
         if len(raw) == 0 or raw[0] != self.TMF8X2X_COM_CMD_STAT__cmd_measure:
             raw = bytearray(self.TMF8X2X_COM_RESULT_FRAME_SIZE)  # make a frame full of 0s
-            self._setError("{} Not a frame".format(fn_name))
+            self.error("{} Not a frame".format(fn_name))
 
         frame.unpack(raw)
         self._addClkCorrectionPair(host_timestamp, frame.payload.systemTicks)

@@ -1,5 +1,6 @@
 from machine import I2C, Pin
 
+
 class I2C_Settings:
 
     def __init__(self, sda: int = 6, scl: int = 7, freq: int = 1000000):
