@@ -1,5 +1,4 @@
 import time
-
 from .com.i2c_com import I2C_com, I2C_Settings
 
 

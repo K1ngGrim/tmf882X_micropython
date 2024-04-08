@@ -2,7 +2,6 @@ from .com.i2c_com import I2C_com, I2C_Settings
 from .tmf8821_device import Tmf8821Device
 from .tmf8821_app import Tmf8821App
 
-
 class Tmf8821Utility(Tmf8821App):
 
     def __init__(self, ic_com: I2C_com):
