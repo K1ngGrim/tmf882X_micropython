@@ -610,7 +610,7 @@ class Tmf8821App(Tmf8821Device):
         if len(val) != number_regs:
             self.error("Reading the loaded config failed")
             return self.Status.DEV_ERROR
-        self.register_buffer[payload_addr:payload_addr + number_regs] = val
+        self.register_buffer[payload_addr:payload_addr + number_regs] = tuple(val)
         return self.Status.OK
 
     def writeConfig(self, timeout: float = 40e-3) -> Tmf8821Device.Status:
